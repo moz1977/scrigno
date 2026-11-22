@@ -451,6 +451,8 @@ async function onUrlChange() {
 }
 
 fItem.url.addEventListener("change", onUrlChange);
+// Mostra subito l'anteprima mentre scrivi, così il modulo non "salta" quando premi Salva.
+fItem.url.addEventListener("input", () => updatePreview());
 fItem.url.addEventListener("paste", () => setTimeout(onUrlChange, 0));
 
 $("#btn-paste").addEventListener("click", async () => {
@@ -526,7 +528,10 @@ fItem.addEventListener("submit", async (e) => {
     toast(editing ? "Modifiche salvate" : "Salvato nello scrigno ✓");
     if (isPopup) setTimeout(() => window.close(), 900);
   } catch (err) {
-    toast("Errore nel salvataggio: " + (err.message || err));
+    const denied = err?.code === "42501" || /permission denied/i.test(err?.message || "");
+    toast(denied
+      ? "Supabase non dà i permessi sulle tabelle: esegui di nuovo schema.sql (vedi README)"
+      : "Errore nel salvataggio: " + (err.message || err));
   } finally { btn.disabled = false; }
 });
 
@@ -716,6 +721,9 @@ function ask(text, okLabel = "Elimina") {
 let toastTimer;
 function toast(msg) {
   const t = $("#toast");
+  // Se è aperta una finestra, il messaggio va dentro di essa, altrimenti resterebbe nascosto dietro.
+  const host = [...document.querySelectorAll("dialog")].find((d) => d.open) || document.body;
+  if (t.parentNode !== host) host.appendChild(t);
   t.textContent = msg;
   t.hidden = false;
   t.classList.add("show");
