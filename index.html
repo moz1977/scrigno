@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Scrigno – i tuoi video salvati</title>
+  <meta name="description" content="Salva i link a reel e video dei social, organizzali in bacheche e ritrovali con tag e ricerca." />
+  <meta name="theme-color" content="#eb5e34" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/favicon.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" id="brand" aria-label="Scrigno, home">
+      <img src="icons/icon-192.png" alt="" width="32" height="32" />
+      <span>Scrigno</span>
+    </a>
+    <label class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 4a6.5 6.5 0 1 0 4.03 11.6l4.43 4.43 1.41-1.41-4.43-4.43A6.5 6.5 0 0 0 10.5 4Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"/></svg>
+      <input id="q" type="search" placeholder="Cerca per titolo, nota, #tag…" autocomplete="off" enterkeyhint="search" />
+      <kbd class="hide-mobile">/</kbd>
+    </label>
+    <button class="icon-btn" id="btn-settings" aria-label="Impostazioni" title="Impostazioni">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.94 4.5-.02-2-2.2-.5a6.9 6.9 0 0 0-.7-1.7l1.2-1.9-1.42-1.42-1.9 1.2a6.9 6.9 0 0 0-1.7-.7L13.7 3h-2l-.5 2.2a6.9 6.9 0 0 0-1.7.7l-1.9-1.2-1.42 1.42 1.2 1.9a6.9 6.9 0 0 0-.7 1.7L4.5 10.2v2l2.2.5c.15.6.39 1.17.7 1.7l-1.2 1.9 1.42 1.42 1.9-1.2c.53.31 1.1.55 1.7.7l.5 2.28h2l.5-2.28c.6-.15 1.17-.39 1.7-.7l1.9 1.2 1.42-1.42-1.2-1.9c.31-.53.55-1.1.7-1.7l2.2-.5Z"/></svg>
+    </button>
+  </header>
+
+  <main id="app" aria-live="polite"></main>
+
+  <button class="fab" id="fab" aria-label="Salva un nuovo link">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+    <span>Salva link</span>
+  </button>
+
+  <!-- Editor link -->
+  <dialog id="dlg-item" class="sheet">
+    <form method="dialog" id="form-item" autocomplete="off">
+      <header class="sheet-head">
+        <h2 id="item-title">Salva un video</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Chiudi">✕</button>
+      </header>
+
+      <label class="field">
+        <span>Link</span>
+        <div class="row">
+          <input name="url" type="url" inputmode="url" placeholder="Incolla il link del video" required />
+          <button type="button" class="btn ghost" id="btn-paste">Incolla</button>
+        </div>
+      </label>
+      <p class="notice" id="dup-notice" hidden></p>
+
+      <div class="preview" id="preview">
+        <div class="preview-thumb" id="preview-thumb"></div>
+        <div class="preview-meta">
+          <span class="badge" id="preview-badge"></span>
+          <span class="muted small" id="preview-status"></span>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>Titolo</span>
+        <input name="title" type="text" placeholder="Di cosa parla? (es. Ricetta carbonara cremosa)" maxlength="300" />
+      </label>
+
+      <label class="field">
+        <span>Bacheca</span>
+        <select name="board_id" id="sel-board"></select>
+      </label>
+
+      <div class="field">
+        <span>Tag</span>
+        <div class="tags-input" id="tags-input">
+          <input id="tag-entry" type="text" placeholder="Scrivi e premi Invio" list="tag-list" enterkeyhint="done" />
+        </div>
+        <datalist id="tag-list"></datalist>
+        <div class="tag-suggest" id="tag-suggest"></div>
+      </div>
+
+      <label class="field">
+        <span>Nota</span>
+        <textarea name="note" rows="2" placeholder="Perché l'hai salvato? Cosa ricordare?"></textarea>
+      </label>
+
+      <footer class="sheet-foot">
+        <button type="button" class="btn danger ghost" id="btn-del-item" hidden>Elimina</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-close>Annulla</button>
+        <button type="submit" class="btn primary" id="btn-save-item">Salva</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Editor bacheca -->
+  <dialog id="dlg-board" class="sheet small">
+    <form method="dialog" id="form-board" autocomplete="off">
+      <header class="sheet-head">
+        <h2 id="board-title">Nuova bacheca</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Chiudi">✕</button>
+      </header>
+      <label class="field">
+        <span>Nome</span>
+        <input name="name" type="text" placeholder="es. Ricette, Allenamento, Viaggi" required maxlength="60" />
+      </label>
+      <div class="field">
+        <span>Colore</span>
+        <div class="swatches" id="swatches"></div>
+      </div>
+      <footer class="sheet-foot">
+        <button type="button" class="btn danger ghost" id="btn-del-board" hidden>Elimina</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-close>Annulla</button>
+        <button type="submit" class="btn primary">Salva</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Impostazioni -->
+  <dialog id="dlg-settings" class="sheet">
+    <div class="sheet-body">
+      <header class="sheet-head">
+        <h2>Impostazioni</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Chiudi">✕</button>
+      </header>
+      <div id="settings-content"></div>
+    </div>
+  </dialog>
+
+  <!-- Conferma -->
+  <dialog id="dlg-confirm" class="sheet small">
+    <form method="dialog" class="confirm-form">
+      <p id="confirm-text"></p>
+      <footer class="sheet-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-close>Annulla</button>
+        <button type="submit" class="btn primary danger-fill" id="confirm-ok">Elimina</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <input type="file" id="file-import" accept="application/json,.json" hidden />
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
