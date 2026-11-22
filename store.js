@@ -72,6 +72,18 @@ export class SupabaseStore {
     if (error) throw error;
   }
 
+  // Anteprima letta dal server (funzione Edge "preview"). Restituisce null se non è installata.
+  async preview(url) {
+    if (this.previewUnavailable || !this.user) return null;
+    const { data, error } = await this.sb.functions.invoke("preview", { body: { url } });
+    if (error) {
+      const status = error.context?.status;
+      if (status === 404) this.previewUnavailable = true; // funzione non ancora pubblicata
+      throw error;
+    }
+    return data;
+  }
+
   async signOut() { await this.sb.auth.signOut(); this.user = null; }
 
   async load() {

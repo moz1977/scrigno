@@ -18,6 +18,7 @@ config.js             ← qui inserisci le chiavi Supabase (facoltativo)
 manifest.webmanifest  rende l'app installabile e la aggiunge al menu Condividi
 sw.js                 service worker (installazione e uso offline)
 supabase/schema.sql   tabelle per la sincronizzazione
+supabase/functions/preview/index.ts   funzione per le anteprime (facoltativa)
 icons/                icone dell'app
 ```
 
@@ -51,6 +52,19 @@ Poi apri <http://localhost:8000>. Con `config.js` vuoto i dati restano **solo in
 Quando apri l'app ti chiede l'email: ricevi un link e accedi senza password. Usa **la stessa email su PC e telefono**.
 Se avevi già salvato video in modalità locale, vai in *Impostazioni → Caricali nel cloud*.
 
+### 2b. Anteprime anche per Instagram e Facebook (facoltativo)
+
+Una piccola funzione su Supabase apre la pagina del video, ne legge l'immagine di anteprima e la salva in modo permanente.
+
+1. **SQL Editor → New query**: esegui questa riga (è anche in fondo a `schema.sql`):
+   `insert into storage.buckets (id, name, public) values ('thumbs', 'thumbs', true) on conflict (id) do nothing;`
+2. **Edge Functions → Deploy a new function → Via Editor**.
+3. Come nome scrivi esattamente `preview`, cancella il codice di esempio e incolla tutto il contenuto di `supabase/functions/preview/index.ts`. Premi **Deploy function**.
+4. Apri la funzione → **Details** (o *Settings*) e **disattiva** "Verify JWT with legacy secret" / "Enforce JWT verification", poi salva. Il controllo di chi può usarla lo fa la funzione stessa.
+5. Nell'app: *Impostazioni → Anteprime → Recupera anteprime* per i video già salvati. I nuovi la ricevono in automatico; nella scheda di un video c'è anche **↻ Riprova anteprima**.
+
+Instagram e Facebook a volte rifiutano queste richieste: in quel caso resta il riquadro colorato e puoi riprovare più tardi.
+
 ## 3. Pubblicarla online (gratis, con GitHub Pages)
 
 Il menu Condividi di Android e l'installazione funzionano solo se l'app è su **https**.
@@ -71,11 +85,9 @@ Vanno bene anche Netlify o Cloudflare Pages: trascini la cartella e basta.
 
 ## Limiti da conoscere
 
-- **Anteprime:** titolo e miniatura arrivano in automatico per YouTube, TikTok e Vimeo. Instagram e Facebook non lo permettono dal browser: il titolo lo scrivi tu (dal PC, il bookmarklet usa il titolo della pagina, che su Instagram contiene di solito la didascalia).
-- Le miniature di TikTok possono scadere dopo un po' di tempo: al loro posto compare il riquadro colorato del social.
+- **Anteprime:** senza la funzione `preview` (sezione 2b) titolo e miniatura arrivano solo per YouTube, TikTok e Vimeo, e quelle di TikTok possono scadere. Con la funzione arrivano anche per Instagram, Facebook e gli altri siti, salvate in modo permanente, ma non sempre: le piattaforme a volte bloccano la lettura.
 - Il menu Condividi è disponibile su Android; su iPhone le PWA non lo supportano (lì si usa *Incolla*).
 
 ## Prossimi passi possibili
 
-- Una Supabase Edge Function che legge l'anteprima (og:image) anche per Instagram.
 - Trasformarla in app Play Store con una *Trusted Web Activity* (Android Studio + Bubblewrap), mantenendo lo stesso codice web.

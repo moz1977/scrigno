@@ -80,11 +80,13 @@ async function getJson(url, ms = 6000) {
 }
 
 /**
- * Prova a recuperare titolo e miniatura. Funziona bene con YouTube, TikTok
- * e Vimeo; Instagram e Facebook di solito non lo permettono dal browser,
- * quindi in quel caso il titolo lo scrivi tu (o arriva dal bookmarklet).
+ * Recupera titolo e miniatura.
+ * - YouTube: miniatura diretta (permanente) + titolo da noembed.
+ * - Altri social: se è collegato Supabase, usa la funzione "preview" che legge
+ *   l'anteprima dal server e salva l'immagine in modo permanente.
+ * - In mancanza: oEmbed pubblici (TikTok, Vimeo, noembed).
  */
-export async function fetchMeta(url) {
+export async function fetchMeta(url, serverPreview = null) {
   const platform = detectPlatform(url);
   const out = { title: "", thumbnail: "", author: "" };
   const enc = encodeURIComponent(url);
@@ -92,6 +94,15 @@ export async function fetchMeta(url) {
   if (platform === "youtube") {
     const id = youtubeId(url);
     if (id) out.thumbnail = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  } else if (serverPreview) {
+    try {
+      const s = await serverPreview(url);
+      if (s) {
+        out.title = tidyTitle(s.title || "");
+        out.thumbnail = s.thumbnail || "";
+      }
+    } catch { /* si prosegue con le alternative */ }
+    if (out.thumbnail) return out;
   }
 
   let j = null;
@@ -100,7 +111,7 @@ export async function fetchMeta(url) {
   if (!j) j = await getJson(`https://noembed.com/embed?url=${enc}`);
 
   if (j) {
-    out.title = j.title || "";
+    if (!out.title) out.title = j.title || "";
     out.author = j.author_name || "";
     if (!out.thumbnail && j.thumbnail_url) out.thumbnail = j.thumbnail_url;
   }

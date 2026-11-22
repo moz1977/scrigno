@@ -424,6 +424,12 @@ function updatePreview(status = "") {
   $("#preview-status").textContent = status;
 }
 
+$("#btn-refresh-meta").addEventListener("click", () => { lastMetaUrl = ""; draftThumb = ""; onUrlChange(); });
+
+function serverPreview() {
+  return state.store?.preview ? (u) => state.store.preview(u) : null;
+}
+
 async function onUrlChange() {
   const raw = fItem.url.value.trim();
   const url = cleanUrl(extractUrl(raw) || raw);
@@ -442,7 +448,7 @@ async function onUrlChange() {
 
   updatePreview("Cerco titolo e anteprima…");
   const seq = ++metaSeq;
-  const meta = await fetchMeta(url);
+  const meta = await fetchMeta(url, serverPreview());
   if (seq !== metaSeq) return;
   if (meta.thumbnail) draftThumb = meta.thumbnail;
   if (meta.title && !fItem.title.value.trim()) fItem.title.value = meta.title.slice(0, 300);
@@ -654,6 +660,13 @@ function renderSettings() {
       <p>Apri Scrigno in Chrome su Android → menu ⋮ → <i>Installa app</i> (o <i>Aggiungi a schermata Home</i>). Da quel momento, nelle app social premi <i>Condividi</i> e scegli <b>Scrigno</b>.</p>
     </section>
 
+    ${missingThumbs().length ? `
+    <section class="set">
+      <h3>Anteprime</h3>
+      <p>${missingThumbs().length} video senza immagine di anteprima.${cloud ? "" : " In modalità locale si recuperano solo quelle di YouTube, TikTok e Vimeo."}</p>
+      <button class="btn ghost" id="btn-backfill">Recupera anteprime</button>
+    </section>` : ""}
+
     <section class="set">
       <h3>Backup</h3>
       <p>${state.items.length} video, ${state.boards.length} bacheche.</p>
@@ -665,6 +678,7 @@ function renderSettings() {
 
   $("#btn-logout", el)?.addEventListener("click", async () => { await state.store.signOut(); $("#dlg-settings").close(); reload(); });
   $("#btn-export", el).addEventListener("click", exportData);
+  $("#btn-backfill", el)?.addEventListener("click", backfillThumbs);
   $("#btn-import", el).addEventListener("click", () => $("#file-import").click());
   $("#btn-migrate", el)?.addEventListener("click", async () => {
     try {
@@ -673,6 +687,31 @@ function renderSettings() {
       await reload(); renderSettings();
     } catch (err) { toast("Errore: " + (err.message || err)); }
   });
+}
+
+function missingThumbs() { return state.items.filter((i) => !i.thumbnail); }
+
+async function backfillThumbs(e) {
+  const btn = e.currentTarget;
+  const list = missingThumbs();
+  btn.disabled = true;
+  let found = 0;
+  for (let k = 0; k < list.length; k++) {
+    btn.textContent = `Recupero ${k + 1} di ${list.length}…`;
+    const item = list[k];
+    try {
+      const meta = await fetchMeta(item.url, serverPreview());
+      if (meta.thumbnail || (!item.title && meta.title)) {
+        const upd = { ...item, thumbnail: meta.thumbnail || item.thumbnail, title: item.title || meta.title || "" };
+        await state.store.saveItem(upd);
+        Object.assign(item, upd);
+        if (meta.thumbnail) found++;
+      }
+    } catch { /* si passa al successivo */ }
+  }
+  render();
+  renderSettings();
+  toast(found ? `Trovate ${found} anteprime su ${list.length}` : "Nessuna anteprima trovata per questi video");
 }
 
 function exportData() {
