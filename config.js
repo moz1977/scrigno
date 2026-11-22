@@ -10,4 +10,3 @@
 // ─────────────────────────────────────────────────────────────
 export const SUPABASE_URL = "https://iwbzpmpmoyevmmpmbjfg.supabase.co";
 export const SUPABASE_ANON_KEY = "sb_publishable_p7gqS3t3lm0FgIMf2JPH_w_OnzMvv8f";
-// ─────────────────────────────────────────────────────────────
