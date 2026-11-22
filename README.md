@@ -40,10 +40,10 @@ Poi apri <http://localhost:8000>. Con `config.js` vuoto i dati restano **solo in
 
 1. Crea un account su <https://supabase.com>, poi **New project** (scegli la regione *Europe* e una password qualsiasi).
 2. Apri **SQL Editor → New query**, incolla il contenuto di `supabase/schema.sql` e premi **Run**.
-3. Apri **Project Settings → API** e copia:
-   - *Project URL* → in `config.js` alla voce `SUPABASE_URL`
-   - *anon public key* → in `config.js` alla voce `SUPABASE_ANON_KEY`
-   (La chiave *anon* può stare nel codice pubblico: i dati sono protetti dalle regole RLS dello schema. **Non** usare mai la chiave `service_role`.)
+3. Apri **Project Settings → API Keys** e copia:
+   - l'indirizzo del progetto, nella forma `https://<id-progetto>.supabase.co` → in `config.js` alla voce `SUPABASE_URL`
+   - la **Publishable key** (inizia con `sb_publishable_`, in *Settings → API Keys*) → in `config.js` alla voce `SUPABASE_ANON_KEY`. Va bene anche la vecchia chiave *anon public* (inizia con `eyJ`).
+   (Queste chiavi possono stare nel codice pubblico: i dati sono protetti dalle regole RLS dello schema. **Non** usare mai la *Secret key* `sb_secret_…` né la vecchia `service_role`.)
 4. Dopo aver pubblicato l'app (passo 3), vai su **Authentication → URL Configuration**:
    - *Site URL* = l'indirizzo dell'app, es. `https://tuonome.github.io/scrigno/`
    - aggiungi lo stesso indirizzo (e `http://localhost:8000/` per le prove) in *Redirect URLs*.
