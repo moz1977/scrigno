@@ -54,7 +54,7 @@ export class SupabaseStore {
 
   async init() {
     const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-    this.sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    this.sb = createClient(supabaseBaseUrl(SUPABASE_URL), SUPABASE_ANON_KEY.trim(), {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     });
     const { data } = await this.sb.auth.getSession();
@@ -125,5 +125,17 @@ export class SupabaseStore {
   }
 }
 
-export const cloudConfigured = () => Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+// Accetta anche URL incollati "sporchi": con / finale, con /rest/v1/,
+// oppure l'indirizzo della dashboard (supabase.com/dashboard/project/<id>).
+export function supabaseBaseUrl(raw) {
+  const s = String(raw || "").trim();
+  try {
+    const u = new URL(s.startsWith("http") ? s : "https://" + s);
+    const ref = u.hostname.endsWith("supabase.com") && u.pathname.match(/\/project\/([a-z0-9]+)/i);
+    if (ref) return `https://${ref[1]}.supabase.co`;
+    return u.origin;
+  } catch { return s.replace(/\/+$/, ""); }
+}
+
+export const cloudConfigured =() => Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 export const localBackup = () => readLocal();
