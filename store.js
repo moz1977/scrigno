@@ -34,6 +34,7 @@ export class LocalStore {
   async saveBoard(b) { upsert(this.data.boards, b); this.persist(); return b; }
   async deleteBoard(id) {
     this.data.boards = this.data.boards.filter((b) => b.id !== id);
+    this.data.boards.forEach((b) => { if (b.parent_id === id) b.parent_id = null; });
     this.data.items.forEach((i) => { if (i.board_id === id) i.board_id = null; });
     this.persist();
   }
@@ -113,7 +114,7 @@ export class SupabaseStore {
     if (error) throw error;
   }
   async saveBoard(b) {
-    const row = this.clean(b, ["id", "name", "color", "created_at"]);
+    const row = this.clean(b, ["id", "name", "color", "parent_id", "created_at"]);
     const { error } = await this.sb.from("boards").upsert(row);
     if (error) throw error;
     return b;
@@ -125,7 +126,7 @@ export class SupabaseStore {
   async bulkImport({ boards = [], items = [] }) {
     if (boards.length) {
       const { error } = await this.sb.from("boards")
-        .upsert(boards.map((b) => this.clean(b, ["id", "name", "color", "created_at"])));
+        .upsert(boards.map((b) => this.clean(b, ["id", "name", "color", "parent_id", "created_at"])));
       if (error) throw error;
     }
     for (let k = 0; k < items.length; k += 500) {

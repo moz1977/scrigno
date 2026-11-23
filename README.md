@@ -52,6 +52,16 @@ Poi apri <http://localhost:8000>. Con `config.js` vuoto i dati restano **solo in
 Quando apri l'app ti chiede l'email: ricevi un link e accedi senza password. Usa **la stessa email su PC e telefono**.
 Se avevi già salvato video in modalità locale, vai in *Impostazioni → Caricali nel cloud*.
 
+### 2a. Categorie e sottocategorie
+
+Se hai creato le tabelle prima di questa funzione, esegui una volta in **SQL Editor**:
+
+```sql
+alter table public.boards add column if not exists parent_id uuid references public.boards(id) on delete set null;
+```
+
+Le categorie principali hanno un colore; le sottocategorie (es. *Viaggi › Cina*) lo ereditano. Toccando una categoria vedi le sue sottocategorie, ognuna con il proprio conteggio, e sotto tutti i video della categoria. Le vecchie bacheche chiamate «Viaggi\Cina» si convertono con il pulsante **Converti** che compare nella home.
+
 ### 2b. Anteprime anche per Instagram e Facebook (facoltativo)
 
 Una piccola funzione su Supabase apre la pagina del video, ne legge l'immagine di anteprima e la salva in modo permanente.

@@ -9,7 +9,7 @@ const state = {
   user: null,
   boards: [],
   items: [],
-  view: { board: null, tag: null, platform: null, query: "" }, // board: null=home | "all" | "none" | id
+  view: { board: null, tag: null, platform: null, query: "", direct: false }, // board: null=home | "all" | "none" | id
   loading: true,
   error: "",
 };
@@ -88,13 +88,31 @@ function handleIncomingShare() {
 }
 
 // ───────────────────────── Filtri e ricerca ─────────────────────────
-function boardName(id) { return state.boards.find((b) => b.id === id)?.name || ""; }
+// Categorie a due livelli: una categoria principale (con colore) e le sue sottocategorie.
+const byName = (a, b) => a.name.localeCompare(b.name, "it");
+function getBoard(id) { return state.boards.find((b) => b.id === id); }
+function parentOf(b) { return b?.parent_id ? getBoard(b.parent_id) : null; }
+function topBoards() { return state.boards.filter((b) => !b.parent_id || !getBoard(b.parent_id)).sort(byName); }
+function childrenOf(id) { return state.boards.filter((b) => b.parent_id === id).sort(byName); }
+function boardColorOf(b) { return (parentOf(b) || b)?.color || BOARD_COLORS[0]; }
+/** Id della categoria più quelli delle sue sottocategorie. */
+function scopeIds(id) { return [id, ...childrenOf(id).map((c) => c.id)]; }
+function boardName(id) {
+  const b = getBoard(id);
+  if (!b) return "";
+  const p = parentOf(b);
+  return p ? `${p.name} › ${b.name}` : b.name;
+}
+function itemsInBoard(id) {
+  if (id === "none") return state.items.filter((i) => !i.board_id || !getBoard(i.board_id));
+  if (!id || id === "all") return state.items;
+  const ids = scopeIds(id);
+  return state.items.filter((i) => ids.includes(i.board_id));
+}
 
 function filteredItems() {
   const { board, tag, platform, query } = state.view;
-  let list = state.items;
-  if (board === "none") list = list.filter((i) => !i.board_id);
-  else if (board && board !== "all") list = list.filter((i) => i.board_id === board);
+  let list = state.view.direct && board ? state.items.filter((i) => i.board_id === board) : itemsInBoard(board);
   if (tag) list = list.filter((i) => i.tags.includes(tag));
   if (platform) list = list.filter((i) => i.platform === platform);
 
@@ -144,9 +162,15 @@ function render() {
     html += crumb();
   }
 
-  html += filtersBar(board && board !== "all" ? state.items.filter((i) => (board === "none" ? !i.board_id : i.board_id === board)) : state.items);
+  const current = board && !["all", "none"].includes(board) ? getBoard(board) : null;
+  if (current && !current.parent_id && !searching && !state.view.direct) html += subBoardsSection(current);
 
-  const heading = searching ? `${items.length} ${items.length === 1 ? "risultato" : "risultati"}` : (!board ? "Salvati di recente" : "");
+  html += filtersBar(itemsInBoard(board));
+
+  let heading = searching ? `${items.length} ${items.length === 1 ? "risultato" : "risultati"}` : (!board ? "Salvati di recente" : "");
+  if (!searching && current && !current.parent_id && childrenOf(current.id).length) {
+    heading = state.view.direct ? `${current.name} › Generale` : `Tutti i video di ${current.name} (${items.length})`;
+  }
   if (heading) html += `<h2 class="section-title">${esc(heading)}</h2>`;
 
   if (!state.items.length) html += welcome();
@@ -160,27 +184,62 @@ function render() {
   app.innerHTML = html;
 }
 
+function migrationBanner() {
+  const legacy = state.boards.filter((b) => !b.parent_id && /\s*[\\/>›]\s*/.test(b.name) && b.name.split(/\s*[\\/>›]\s*/).filter(Boolean).length === 2);
+  if (!legacy.length) return "";
+  return `<p class="notice">Hai ${legacy.length === 1 ? "una bacheca" : `${legacy.length} bacheche`} con nomi tipo «${esc(legacy[0].name)}». Vuoi trasformarle in categoria e sottocategoria? <button class="link-btn" data-act="migrate">Converti</button></p>`;
+}
+
+async function migrateLegacyBoards() {
+  const sep = /\s*[\\/>›]\s*/;
+  const legacy = state.boards.filter((b) => !b.parent_id && b.name.split(sep).filter(Boolean).length === 2);
+  try {
+    for (const b of legacy) {
+      const [parentName, childName] = b.name.split(sep).filter(Boolean);
+      let parent = state.boards.find((x) => !x.parent_id && norm(x.name) === norm(parentName));
+      if (!parent) parent = await createBoard(parentName, b.color);
+      if (!parent) return;
+      const upd = { ...b, name: childName, parent_id: parent.id };
+      await state.store.saveBoard(upd);
+      Object.assign(b, upd);
+    }
+    toast("Bacheche convertite in categorie ✓");
+  } catch (err) { toast(errText(err)); }
+  render();
+}
+
 function boardsSection() {
-  const counts = new Map();
-  state.items.forEach((i) => counts.set(i.board_id || "none", (counts.get(i.board_id || "none") || 0) + 1));
-  const tiles = state.boards
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name, "it"))
-    .map((b) => boardTile(b.id, b.name, b.color, counts.get(b.id) || 0));
-  const none = counts.get("none");
-  if (none && state.boards.length) tiles.push(boardTile("none", "Senza bacheca", "#9a9087", none));
-  tiles.push(`<button class="board-tile add" data-act="new-board"><span class="plus">+</span><span class="board-name">Nuova bacheca</span></button>`);
+  const tiles = topBoards().map((b) => {
+    const subs = childrenOf(b.id).length;
+    return boardTile(b.id, b.name, b.color, itemsInBoard(b.id).length, subs ? `${subs} ${subs === 1 ? "sottocategoria" : "sottocategorie"}` : "");
+  });
+  const none = itemsInBoard("none").length;
+  if (none && state.boards.length) tiles.push(boardTile("none", "Senza categoria", "#9a9087", none));
+  tiles.push(`<button class="board-tile add" data-act="new-board"><span class="plus">+</span><span class="board-name">Nuova categoria</span></button>`);
   return `
+    ${migrationBanner()}
     <div class="section-head">
-      <h2 class="section-title">Bacheche</h2>
+      <h2 class="section-title">Categorie</h2>
       ${state.items.length ? `<button class="link-btn" data-act="board" data-id="all">Tutti (${state.items.length})</button>` : ""}
     </div>
     <div class="boards">${tiles.join("")}</div>`;
 }
 
-function boardTile(id, name, color, count) {
-  const thumbs = state.items
-    .filter((i) => (id === "none" ? !i.board_id : i.board_id === id) && i.thumbnail)
+function subBoardsSection(parent) {
+  const subs = childrenOf(parent.id);
+  const tiles = subs.map((c) => boardTile(c.id, c.name, parent.color, itemsInBoard(c.id).length));
+  const direct = state.items.filter((i) => i.board_id === parent.id).length;
+  if (direct && subs.length) tiles.push(boardTile(parent.id + "::direct", "Generale", parent.color, direct, "senza sottocategoria"));
+  tiles.push(`<button class="board-tile add" data-act="new-sub" data-id="${esc(parent.id)}"><span class="plus">+</span><span class="board-name">Nuova sottocategoria</span></button>`);
+  return `
+    <h2 class="section-title">Sottocategorie</h2>
+    <div class="boards">${tiles.join("")}</div>`;
+}
+
+function boardTile(id, name, color, count, extra = "") {
+  const pool = id.endsWith("::direct") ? state.items.filter((i) => i.board_id === id.slice(0, -8)) : itemsInBoard(id);
+  const thumbs = pool
+    .filter((i) => i.thumbnail)
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
     .slice(0, 3);
   const cover = thumbs.length
@@ -190,7 +249,7 @@ function boardTile(id, name, color, count) {
     <button class="board-tile" style="--c:${esc(color || BOARD_COLORS[0])}" data-act="board" data-id="${esc(id)}">
       ${cover}
       <span class="board-name">${esc(name)}</span>
-      <span class="board-count">${count} ${count === 1 ? "video" : "video"}</span>
+      <span class="board-count">${count} video${extra ? ` · ${esc(extra)}` : ""}</span>
     </button>`;
 }
 
@@ -199,16 +258,24 @@ function crumb() {
   let title = "Ricerca";
   let color = "";
   let editable = false;
+  let parent = null;
   if (board === "all") title = "Tutti i video";
-  else if (board === "none") title = "Senza bacheca";
+  else if (board === "none") title = "Senza categoria";
   else if (board) {
-    const b = state.boards.find((x) => x.id === board);
-    title = b?.name || "Bacheca"; color = b?.color || ""; editable = Boolean(b);
+    const b = getBoard(board);
+    parent = parentOf(b);
+    title = b?.name || "Categoria"; color = b ? boardColorOf(b) : ""; editable = Boolean(b);
   }
+  const back = state.view.direct && board
+    ? `<button class="icon-btn" data-act="board" data-id="${esc(board)}" aria-label="Torna alla categoria">←</button>`
+    : parent
+    ? `<button class="icon-btn" data-act="board" data-id="${esc(parent.id)}" aria-label="Torna a ${esc(parent.name)}">←</button>`
+    : `<button class="icon-btn" data-act="home" aria-label="Torna alla home">←</button>`;
   return `
     <div class="crumb">
-      <button class="icon-btn" data-act="home" aria-label="Torna alla home">←</button>
+      ${back}
       ${color ? `<span class="dot" style="background:${esc(color)}"></span>` : ""}
+      ${parent ? `<button class="crumb-parent" data-act="board" data-id="${esc(parent.id)}">${esc(parent.name)}</button><span class="crumb-sep">›</span>` : ""}
       <h1>${esc(title)}</h1>
       ${editable ? `<button class="link-btn" data-act="edit-board" data-id="${esc(board)}">Modifica</button>` : ""}
     </div>`;
@@ -232,7 +299,10 @@ function filtersBar(scope) {
 
 function card(i) {
   const p = PLATFORMS[i.platform] || PLATFORMS.web;
-  const b = state.boards.find((x) => x.id === i.board_id);
+  const b = getBoard(i.board_id);
+  const bp = parentOf(b);
+  // Etichetta: nella vista della categoria basta il nome della sottocategoria.
+  const bLabel = b ? (bp && state.view.board === bp.id ? b.name : boardName(b.id)) : "";
   const title = i.title || hostOf(i.url);
   const thumb = i.thumbnail
     ? `<img src="${esc(i.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('noimg');this.remove()">`
@@ -249,7 +319,7 @@ function card(i) {
         ${i.note ? `<p class="note">${esc(i.note)}</p>` : ""}
         <div class="card-foot">
           <div class="mini-tags">
-            ${b && state.view.board !== b.id ? `<button class="mini board" style="--c:${esc(b.color)}" data-act="board" data-id="${esc(b.id)}">${esc(b.name)}</button>` : ""}
+            ${b && state.view.board !== b.id ? `<button class="mini board" style="--c:${esc(boardColorOf(b))}" data-act="board" data-id="${esc(b.id)}">${esc(bLabel)}</button>` : ""}
             ${i.tags.slice(0, 4).map((t) => `<button class="mini" data-act="tag" data-id="${esc(t)}">#${esc(t)}</button>`).join("")}
           </div>
           <button class="icon-btn small" data-act="edit" data-id="${esc(i.id)}" aria-label="Modifica">⋯</button>
@@ -300,7 +370,7 @@ function bindLogin(root) {
       f.outerHTML = `<p class="notice ok">Controlla la posta: ti abbiamo inviato il link di accesso a <b>${esc(email)}</b>.</p>`;
     } catch (err) {
       btn.disabled = false; btn.textContent = "Invia link";
-      toast("Errore: " + (err.message || err));
+      toast(errText(err));
     }
   });
 }
@@ -312,8 +382,12 @@ document.addEventListener("click", (e) => {
   const { act, id } = el.dataset;
   switch (act) {
     case "open": return; // il link si apre normalmente
-    case "home": e.preventDefault(); $("#q").value = ""; return setView({ board: null, tag: null, platform: null, query: "" });
-    case "board": return setView({ board: id, tag: null, platform: null });
+    case "home": e.preventDefault(); $("#q").value = ""; return setView({ board: null, tag: null, platform: null, query: "", direct: false });
+    case "board":
+      if (id.endsWith("::direct")) return setView({ board: id.slice(0, -8), tag: null, platform: null, direct: true });
+      return setView({ board: id, tag: null, platform: null, direct: false });
+    case "new-sub": return openBoardEditor(null, null, id);
+    case "migrate": return migrateLegacyBoards();
     case "tag": return setView({ tag: state.view.tag === id ? null : id });
     case "platform": return setView({ platform: state.view.platform === id ? null : id });
     case "clear": $("#q").value = ""; return setView({ tag: null, platform: null, query: "" });
@@ -328,7 +402,7 @@ document.addEventListener("click", (e) => {
 $("#brand").addEventListener("click", (e) => {
   e.preventDefault();
   $("#q").value = "";
-  setView({ board: null, tag: null, platform: null, query: "" });
+  setView({ board: null, tag: null, platform: null, query: "", direct: false });
 });
 $("#fab").addEventListener("click", () => openItemEditor(null));
 $("#btn-settings").addEventListener("click", openSettings);
@@ -376,9 +450,9 @@ let draftThumb = "";
 
 function fillBoardSelect(selected) {
   const sel = $("#sel-board");
-  const opts = state.boards.slice().sort((a, b) => a.name.localeCompare(b.name, "it"))
-    .map((b) => `<option value="${esc(b.id)}" ${b.id === selected ? "selected" : ""}>${esc(b.name)}</option>`);
-  sel.innerHTML = `<option value="">— Nessuna —</option>${opts.join("")}<option value="__new">+ Nuova bacheca…</option>`;
+  const opt = (b, label) => `<option value="${esc(b.id)}" ${b.id === selected ? "selected" : ""}>${esc(label)}</option>`;
+  const opts = topBoards().flatMap((t) => [opt(t, t.name), ...childrenOf(t.id).map((c) => opt(c, `\u00a0\u00a0\u00a0↳ ${c.name}`))]);
+  sel.innerHTML = `<option value="">— Nessuna —</option>${opts.join("")}<option value="__new">+ Nuova categoria o sottocategoria…</option>`;
   if (!selected) sel.value = "";
 }
 
@@ -549,7 +623,7 @@ $("#btn-del-item").addEventListener("click", async () => {
     $("#dlg-item").close();
     render();
     toast("Eliminato");
-  } catch (err) { toast("Errore: " + (err.message || err)); }
+  } catch (err) { toast(errText(err)); }
 });
 
 // ───────────────────────── Editor bacheca ─────────────────────────
@@ -567,42 +641,69 @@ $("#swatches").addEventListener("click", (e) => {
   if (s) { boardColor = s.dataset.c; renderSwatches(); }
 });
 
-function openBoardEditor(b, onCreated = null) {
+function fillParentSelect(b, presetParent) {
+  const sel = $("#sel-parent");
+  const hasKids = b && childrenOf(b.id).length > 0;
+  const choices = topBoards().filter((t) => t.id !== b?.id);
+  sel.innerHTML = `<option value="">— Nessuna: è una categoria principale —</option>` +
+    choices.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("");
+  sel.value = (b ? b.parent_id : presetParent) || "";
+  sel.disabled = hasKids;
+  $("#parent-hint").hidden = !hasKids;
+  updateBoardForm();
+}
+
+function updateBoardForm() {
+  const isSub = Boolean($("#sel-parent").value);
+  $("#color-field").hidden = isSub;
+  $("#board-title").textContent = editingBoard
+    ? (isSub ? "Modifica sottocategoria" : "Modifica categoria")
+    : (isSub ? "Nuova sottocategoria" : "Nuova categoria");
+  fBoard.name.placeholder = isSub ? "es. Cina, Italia, Francia" : "es. Viaggi, Ricette, Allenamento";
+}
+$("#sel-parent").addEventListener("change", updateBoardForm);
+
+function openBoardEditor(b, onCreated = null, presetParent = null) {
   editingBoard = b || null;
   onBoardCreated = onCreated;
   fBoard.reset();
-  $("#board-title").textContent = b ? "Modifica bacheca" : "Nuova bacheca";
   $("#btn-del-board").hidden = !b;
   fBoard.name.value = b?.name || "";
-  boardColor = b?.color || BOARD_COLORS[state.boards.length % BOARD_COLORS.length];
+  boardColor = b?.color || BOARD_COLORS[topBoards().length % BOARD_COLORS.length];
   renderSwatches();
+  fillParentSelect(b, presetParent);
   $("#dlg-board").showModal();
   setTimeout(() => fBoard.name.focus(), 50);
 }
 
-async function createBoard(name, color) {
-  const existing = state.boards.find((b) => norm(b.name) === norm(name));
+async function createBoard(name, color, parentId = null) {
+  const existing = state.boards.find((b) => norm(b.name) === norm(name) && (b.parent_id || null) === parentId);
   if (existing) return existing;
-  const b = { id: uid(), name, color: color || BOARD_COLORS[state.boards.length % BOARD_COLORS.length], created_at: new Date().toISOString() };
+  const b = {
+    id: uid(), name, parent_id: parentId,
+    color: parentId ? null : (color || BOARD_COLORS[topBoards().length % BOARD_COLORS.length]),
+    created_at: new Date().toISOString(),
+  };
   try {
     await state.store.saveBoard(b);
     state.boards.push(b);
     return b;
-  } catch (err) { toast("Errore: " + (err.message || err)); return null; }
+  } catch (err) { toast(errText(err)); return null; }
 }
 
 fBoard.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = fBoard.name.value.trim();
   if (!name) return;
+  const parentId = $("#sel-parent").value || null;
   if (editingBoard) {
-    const b = { ...editingBoard, name, color: boardColor };
+    const b = { ...editingBoard, name, parent_id: parentId, color: parentId ? editingBoard.color : boardColor };
     try {
       await state.store.saveBoard(b);
       Object.assign(editingBoard, b);
-    } catch (err) { return toast("Errore: " + (err.message || err)); }
+    } catch (err) { return toast(errText(err)); }
   } else {
-    const b = await createBoard(name, boardColor);
+    const b = await createBoard(name, boardColor, parentId);
     if (onBoardCreated) { onBoardCreated(b); onBoardCreated = null; }
   }
   $("#dlg-board").close();
@@ -612,14 +713,22 @@ fBoard.addEventListener("submit", async (e) => {
 $("#btn-del-board").addEventListener("click", async () => {
   if (!editingBoard) return;
   const n = state.items.filter((i) => i.board_id === editingBoard.id).length;
-  if (!(await ask(`Eliminare la bacheca "${editingBoard.name}"?${n ? ` I ${n} video al suo interno non vengono cancellati: finiscono in "Senza bacheca".` : ""}`))) return;
+  const kids = childrenOf(editingBoard.id).length;
+  const parent = parentOf(editingBoard);
+  const what = parent ? "la sottocategoria" : "la categoria";
+  const msg = `Eliminare ${what} "${editingBoard.name}"?` +
+    (n ? ` I ${n} video al suo interno non vengono cancellati: finiscono in "Senza categoria".` : "") +
+    (kids ? ` Le sue ${kids} sottocategorie diventano categorie principali.` : "");
+  if (!(await ask(msg))) return;
   try {
-    await state.store.deleteBoard(editingBoard.id);
-    state.boards = state.boards.filter((b) => b.id !== editingBoard.id);
-    state.items.forEach((i) => { if (i.board_id === editingBoard.id) i.board_id = null; });
+    const id = editingBoard.id;
+    await state.store.deleteBoard(id);
+    state.boards = state.boards.filter((b) => b.id !== id);
+    state.boards.forEach((b) => { if (b.parent_id === id) { b.parent_id = null; b.color = b.color || BOARD_COLORS[0]; } });
+    state.items.forEach((i) => { if (i.board_id === id) i.board_id = null; });
     $("#dlg-board").close();
-    setView({ board: null });
-  } catch (err) { toast("Errore: " + (err.message || err)); }
+    setView({ board: parent ? parent.id : null });
+  } catch (err) { toast(errText(err)); }
 });
 
 // ───────────────────────── Impostazioni ─────────────────────────
@@ -669,7 +778,7 @@ function renderSettings() {
 
     <section class="set">
       <h3>Backup</h3>
-      <p>${state.items.length} video, ${state.boards.length} bacheche.</p>
+      <p>${state.items.length} video, ${topBoards().length} categorie, ${state.boards.length - topBoards().length} sottocategorie.</p>
       <div class="row wrap">
         <button class="btn ghost" id="btn-export">Esporta (JSON)</button>
         <button class="btn ghost" id="btn-import">Importa…</button>
@@ -685,7 +794,7 @@ function renderSettings() {
       await state.store.bulkImport(localBackup());
       toast("Dati locali caricati nel cloud ✓");
       await reload(); renderSettings();
-    } catch (err) { toast("Errore: " + (err.message || err)); }
+    } catch (err) { toast(errText(err)); }
   });
 }
 
@@ -739,6 +848,13 @@ $("#file-import").addEventListener("change", async (e) => {
     toast(`Importati ${items.length} video ✓`);
   } catch (err) { toast("Importazione non riuscita: " + (err.message || err)); }
 });
+
+function errText(err) {
+  const m = String(err?.message || err || "");
+  if (/parent_id/i.test(m)) return "Su Supabase manca la colonna per le sottocategorie: esegui la riga SQL indicata nel README";
+  if (err?.code === "42501" || /permission denied/i.test(m)) return "Supabase non dà i permessi sulle tabelle: esegui di nuovo schema.sql";
+  return "Errore: " + m;
+}
 
 // ───────────────────────── Conferma ─────────────────────────
 function ask(text, okLabel = "Elimina") {

@@ -66,7 +66,7 @@
       </label>
 
       <label class="field">
-        <span>Bacheca</span>
+        <span>Categoria</span>
         <select name="board_id" id="sel-board"></select>
       </label>
 
@@ -97,14 +97,19 @@
   <dialog id="dlg-board" class="sheet small">
     <form method="dialog" id="form-board" autocomplete="off">
       <header class="sheet-head">
-        <h2 id="board-title">Nuova bacheca</h2>
+        <h2 id="board-title">Nuova categoria</h2>
         <button type="button" class="icon-btn" data-close aria-label="Chiudi">✕</button>
       </header>
       <label class="field">
         <span>Nome</span>
-        <input name="name" type="text" placeholder="es. Ricette, Allenamento, Viaggi" required maxlength="60" />
+        <input name="name" type="text" placeholder="es. Viaggi, Ricette, Allenamento" required maxlength="60" />
       </label>
-      <div class="field">
+      <label class="field">
+        <span>Dentro la categoria</span>
+        <select id="sel-parent"></select>
+        <small class="muted" id="parent-hint" hidden>Questa categoria ha delle sottocategorie, quindi resta una categoria principale.</small>
+      </label>
+      <div class="field" id="color-field">
         <span>Colore</span>
         <div class="swatches" id="swatches"></div>
       </div>
