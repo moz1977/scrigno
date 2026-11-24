@@ -377,10 +377,10 @@ function loginView() {
   return `
     <div class="welcome login">
       <h2>Accedi a Scrigno</h2>
-      <p>Inserisci la tua email: riceverai un link per entrare, senza password. Usa la stessa email su PC e telefono per vedere gli stessi video.</p>
+      <p>Inserisci la tua email: riceverai un codice per entrare, senza password. Usa la stessa email su PC e telefono per vedere gli stessi video.</p>
       <form id="login-form" class="row">
         <input type="email" name="email" placeholder="tu@email.it" required autocomplete="email" />
-        <button class="btn primary" type="submit">Invia link</button>
+        <button class="btn primary" type="submit">Invia codice</button>
       </form>
       ${state.error ? `<p class="notice error">${esc(state.error)}</p>` : ""}
     </div>`;
@@ -396,10 +396,42 @@ function bindLogin(root) {
     btn.disabled = true; btn.textContent = "Invio…";
     try {
       await state.store.signIn(email);
-      f.outerHTML = `<p class="notice ok">Controlla la posta: ti abbiamo inviato il link di accesso a <b>${esc(email)}</b>.</p>`;
+      showCodeForm(root, email);
     } catch (err) {
-      btn.disabled = false; btn.textContent = "Invia link";
+      btn.disabled = false; btn.textContent = "Invia codice";
       toast(errText(err));
+    }
+  });
+}
+
+// Dopo l'invio: si può aprire il link oppure scrivere qui il codice dell'email.
+// Su iPhone serve il codice, perché il link si apre in Safari e non nell'app installata.
+function showCodeForm(root, email) {
+  const f = $("#login-form", root);
+  if (!f) return;
+  f.outerHTML = `
+    <p class="notice ok">Controlla la posta: abbiamo inviato a <b>${esc(email)}</b> un codice di accesso.
+      Scrivilo qui sotto (su iPhone usa sempre il codice, non il link).</p>
+    <form id="code-form" class="row">
+      <input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10"
+        placeholder="Codice" required style="letter-spacing:.2em" />
+      <button class="btn primary" type="submit">Entra</button>
+    </form>
+    <p class="muted small"><button type="button" class="link-btn" id="btn-other-email">Usa un'altra email</button></p>`;
+  const cf = $("#code-form", root);
+  setTimeout(() => cf.code.focus(), 50);
+  $("#btn-other-email", root).onclick = () => render();
+  cf.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = cf.code.value.replace(/\D/g, "");
+    const btn = cf.querySelector("button");
+    btn.disabled = true; btn.textContent = "Verifico…";
+    try {
+      await state.store.verifyCode(email, code);
+      // onAuthChange carica i dati del nuovo account.
+    } catch (err) {
+      btn.disabled = false; btn.textContent = "Entra";
+      toast(/expired|invalid/i.test(err?.message || "") ? "Codice non valido o scaduto: richiedine uno nuovo" : errText(err));
     }
   });
 }

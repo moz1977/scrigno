@@ -73,6 +73,15 @@ export class SupabaseStore {
     if (error) throw error;
   }
 
+  // Accesso con il codice ricevuto per email (necessario su iPhone: l'app sulla
+  // schermata Home non condivide la sessione con Safari, dove si apre il link).
+  async verifyCode(email, token) {
+    const { data, error } = await this.sb.auth.verifyOtp({ email, token, type: "email" });
+    if (error) throw error;
+    this.user = data.user || data.session?.user || null;
+    return this.user;
+  }
+
   // Anteprima letta dal server (funzione Edge "preview"). Restituisce null se non è installata.
   async preview(url) {
     if (this.previewUnavailable || !this.user) return null;

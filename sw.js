@@ -1,5 +1,5 @@
 // Service worker minimale: rende l'app installabile e apribile offline.
-const CACHE = "scrigno-v6";
+const CACHE = "scrigno-v7";
 const SHELL = [
   "./", "./index.html", "./styles.css", "./app.js", "./store.js", "./links.js",
   "./config.js", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png",
