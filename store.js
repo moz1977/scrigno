@@ -87,18 +87,32 @@ export class SupabaseStore {
 
   async signOut() { await this.sb.auth.signOut(); this.user = null; }
 
+  /** Id dell'utente collegato; senza accesso nessuna operazione sui dati. */
+  me() {
+    if (!this.user?.id) throw new Error("Accesso richiesto");
+    return this.user.id;
+  }
+
+  // Ogni lettura e modifica è limitata all'utente collegato, anche dal lato app.
+  // La protezione vera resta quella del database (regole RLS in schema.sql).
   async load() {
+    if (!this.user) return { boards: [], items: [] };
+    const me = this.me();
     const [b, i] = await Promise.all([
-      this.sb.from("boards").select("*").order("created_at", { ascending: true }),
-      this.sb.from("items").select("*").order("created_at", { ascending: false }),
+      this.sb.from("boards").select("*").eq("user_id", me).order("created_at", { ascending: true }),
+      this.sb.from("items").select("*").eq("user_id", me).order("created_at", { ascending: false }),
     ]);
     if (b.error) throw b.error;
     if (i.error) throw i.error;
-    return { boards: b.data, items: i.data };
+    // Doppio controllo: scarta qualsiasi riga che non sia dell'utente.
+    return {
+      boards: (b.data || []).filter((x) => x.user_id === me),
+      items: (i.data || []).filter((x) => x.user_id === me),
+    };
   }
 
   clean(obj, fields) {
-    const o = { user_id: this.user.id };
+    const o = { user_id: this.me() };
     fields.forEach((f) => { if (obj[f] !== undefined) o[f] = obj[f]; });
     return o;
   }
@@ -110,7 +124,7 @@ export class SupabaseStore {
     return item;
   }
   async deleteItem(id) {
-    const { error } = await this.sb.from("items").delete().eq("id", id);
+    const { error } = await this.sb.from("items").delete().eq("id", id).eq("user_id", this.me());
     if (error) throw error;
   }
   async saveBoard(b) {
@@ -120,7 +134,7 @@ export class SupabaseStore {
     return b;
   }
   async deleteBoard(id) {
-    const { error } = await this.sb.from("boards").delete().eq("id", id);
+    const { error } = await this.sb.from("boards").delete().eq("id", id).eq("user_id", this.me());
     if (error) throw error;
   }
   async bulkImport({ boards = [], items = [] }) {
@@ -150,5 +164,7 @@ export function supabaseBaseUrl(raw) {
   } catch { return s.replace(/\/+$/, ""); }
 }
 
-export const cloudConfigured =() => Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+export const cloudConfigured = () => Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 export const localBackup = () => readLocal();
+/** Cancella i dati salvati in modalità locale in questo browser (dopo averli caricati nel cloud). */
+export const clearLocal = () => { try { localStorage.removeItem(LOCAL_KEY); } catch {} };

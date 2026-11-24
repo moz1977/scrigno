@@ -1,15 +1,18 @@
-import { LocalStore, SupabaseStore, cloudConfigured, localBackup, uid } from "./store.js";
+import { LocalStore, SupabaseStore, cloudConfigured, localBackup, clearLocal, uid } from "./store.js";
 import { PLATFORMS, extractUrl, detectPlatform, cleanUrl, fetchMeta, tidyTitle } from "./links.js";
 
 // ───────────────────────── Stato ─────────────────────────
 const BOARD_COLORS = ["#eb5e34", "#e0a526", "#3f9d5a", "#2a8c8c", "#3d6fd6", "#7b55d6", "#c94c8f", "#6b6258"];
+
+const emptyView = () => ({ board: null, tag: null, platform: null, query: "", direct: false });
 
 const state = {
   store: null,
   user: null,
   boards: [],
   items: [],
-  view: { board: null, tag: null, platform: null, query: "", direct: false }, // board: null=home | "all" | "none" | id
+  dataOwner: null, // di chi sono i dati in memoria: id utente, "local" oppure null
+  view: emptyView(), // board: null=home | "all" | "none" | id
   loading: true,
   error: "",
 };
@@ -34,7 +37,7 @@ async function boot() {
       state.store.onAuthChange(async (u) => {
         const changed = (u?.id || null) !== (state.user?.id || null);
         state.user = u;
-        if (changed) { await reload(); renderSettings(); }
+        if (changed) { clearUserData(); await reload(); renderSettings(); }
       });
     }
   } catch (e) {
@@ -48,18 +51,44 @@ async function boot() {
   }
 }
 
+/** Chi deve possedere i dati mostrati in questo momento. */
+function currentOwner() {
+  return state.store?.mode === "cloud" ? (state.user?.id || null) : "local";
+}
+
+/** Svuota subito i dati dell'account precedente (cambio account o uscita). */
+function clearUserData() {
+  state.boards = [];
+  state.items = [];
+  state.dataOwner = null;
+  state.error = "";
+  state.view = emptyView();
+  const q = $("#q");
+  if (q) q.value = "";
+  document.querySelectorAll("dialog").forEach((d) => { if (d.open) d.close(); });
+}
+
+let reloadSeq = 0;
 async function reload() {
+  const seq = ++reloadSeq;
+  const owner = currentOwner();
+  // Mai mostrare, nemmeno per un istante, i dati di un altro account.
+  if (state.dataOwner !== owner) { state.boards = []; state.items = []; state.dataOwner = null; }
   state.loading = true;
   render();
   if (state.store.mode === "cloud" && !state.user) {
-    state.boards = []; state.items = []; state.loading = false; render(); return;
+    state.boards = []; state.items = []; state.dataOwner = null; state.loading = false; render(); return;
   }
   try {
     const d = await state.store.load();
+    // Se nel frattempo è cambiato l'account (o è partito un altro caricamento), si scarta il risultato.
+    if (seq !== reloadSeq || owner !== currentOwner()) return;
     state.boards = d.boards || [];
     state.items = (d.items || []).map((i) => ({ ...i, tags: i.tags || [] }));
+    state.dataOwner = owner;
     state.error = "";
   } catch (e) {
+    if (seq !== reloadSeq) return;
     state.error = "Impossibile caricare i dati: " + (e.message || e);
   }
   state.loading = false;
@@ -451,7 +480,7 @@ let draftThumb = "";
 function fillBoardSelect(selected) {
   const sel = $("#sel-board");
   const opt = (b, label) => `<option value="${esc(b.id)}" ${b.id === selected ? "selected" : ""}>${esc(label)}</option>`;
-  const opts = topBoards().flatMap((t) => [opt(t, t.name), ...childrenOf(t.id).map((c) => opt(c, `\u00a0\u00a0\u00a0↳ ${c.name}`))]);
+  const opts = topBoards().flatMap((t) => [opt(t, t.name), ...childrenOf(t.id).map((c) => opt(c, `   ↳ ${c.name}`))]);
   sel.innerHTML = `<option value="">— Nessuna —</option>${opts.join("")}<option value="__new">+ Nuova categoria o sottocategoria…</option>`;
   if (!selected) sel.value = "";
 }
@@ -608,7 +637,7 @@ fItem.addEventListener("submit", async (e) => {
     toast(editing ? "Modifiche salvate" : "Salvato nello scrigno ✓");
     if (isPopup) setTimeout(() => window.close(), 900);
   } catch (err) {
-    const denied = err?.code === "42501" || /permission denied/i.test(err?.message || "");
+    const denied = err?.code === "42501" || /permission denied|row-level security/i.test(err?.message || "");
     toast(denied
       ? "Supabase non dà i permessi sulle tabelle: esegui di nuovo schema.sql (vedi README)"
       : "Errore nel salvataggio: " + (err.message || err));
@@ -754,7 +783,7 @@ function renderSettings() {
                <button class="btn ghost" id="btn-logout">Esci</button>`
             : `<p>Accedi per sincronizzare i tuoi video.</p>`)
         : `<p><b>Modalità locale:</b> i video sono salvati solo in questo browser. Per vederli anche sul telefono (e viceversa) collega Supabase, gratuito: istruzioni nel file <code>README.md</code>.</p>`}
-      ${cloud && state.user && localCount ? `<p class="notice">In questo browser ci sono ${localCount} video salvati in modalità locale. <button class="link-btn" id="btn-migrate">Caricali nel cloud</button></p>` : ""}
+      ${cloud && state.user && localCount ? `<p class="notice">In questo browser ci sono ${localCount} video salvati prima di usare il cloud (modalità locale). Caricali solo se sono tuoi: verranno aggiunti all'account <b>${esc(state.user.email)}</b> e tolti da questo browser. <button class="link-btn" id="btn-migrate">Caricali nel mio account</button></p>` : ""}
     </section>
 
     <section class="set">
@@ -785,14 +814,20 @@ function renderSettings() {
       </div>
     </section>`;
 
-  $("#btn-logout", el)?.addEventListener("click", async () => { await state.store.signOut(); $("#dlg-settings").close(); reload(); });
+  $("#btn-logout", el)?.addEventListener("click", async () => {
+    await state.store.signOut();
+    sessionStorage.removeItem("scrigno:pending");
+    clearUserData();
+    reload();
+  });
   $("#btn-export", el).addEventListener("click", exportData);
   $("#btn-backfill", el)?.addEventListener("click", backfillThumbs);
   $("#btn-import", el).addEventListener("click", () => $("#file-import").click());
   $("#btn-migrate", el)?.addEventListener("click", async () => {
     try {
       await state.store.bulkImport(localBackup());
-      toast("Dati locali caricati nel cloud ✓");
+      clearLocal(); // una volta caricati, non vanno proposti ad altri account di questo browser
+      toast("Dati locali caricati nel tuo account ✓");
       await reload(); renderSettings();
     } catch (err) { toast(errText(err)); }
   });
@@ -851,7 +886,8 @@ $("#file-import").addEventListener("change", async (e) => {
 
 function errText(err) {
   const m = String(err?.message || err || "");
-  if (/parent_id/i.test(m)) return "Su Supabase manca la colonna per le sottocategorie: esegui la riga SQL indicata nel README";
+  if (/parent_id/i.test(m)) return "Su Supabase manca la colonna per le sottocategorie: esegui di nuovo schema.sql";
+  if (/row-level security/i.test(m)) return "Questo elemento appartiene a un altro account e non può essere modificato";
   if (err?.code === "42501" || /permission denied/i.test(m)) return "Supabase non dà i permessi sulle tabelle: esegui di nuovo schema.sql";
   return "Errore: " + m;
 }
