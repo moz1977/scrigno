@@ -3,18 +3,20 @@
   "short_name": "Scrigno",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#041F52",
-  "theme_color": "#041F52",
+  "background_color": "#011651",
+  "theme_color": "#011651",
   "icons": [
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/icon-maskable-512.png",
